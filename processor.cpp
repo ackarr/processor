@@ -6,12 +6,16 @@ int main()
 
     Processor_s proc = {.pc = 0,
                         .halted = 0,
-                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop},
+                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop, Jmp},
                         .value = POISON};
 
     StackCreate(&proc.stk, 16);
 
     DoCommand(&proc, command);
+
+    ON_DBG(ProcDump(&proc);)
+
+    printf("%lg", register_lst[A_r - REGBEGIN]);
 
     ON_DBG(ProcDump(&proc);)
 
@@ -99,9 +103,15 @@ int Hlt(Processor_s* proc)
 int Pop(Processor_s* proc)
 {
     StackEl A = StackPop(&(proc->stk));
-    register_lst[A_r] = A;
+    register_lst[A_r - REGBEGIN] = A;
 
     proc->pc += 2;
+}
+
+
+int Jmp(Processor_s* proc)
+{
+    proc->pc = proc->value;
 }
 
 
@@ -208,7 +218,6 @@ void ProcDump(const Processor_s* proc)
     if (!proc)
     {
         fprintf(out, "}\n");
-        return;
     }
 
     fprintf(out, "    pc       = %d\n", proc->pc);
