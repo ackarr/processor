@@ -13,7 +13,14 @@ enum command_code
     SUB  = 2,
     DIV  = 3,
     OUT  = 4,
-    HLT  = 5
+    HLT  = 5,
+    POP  = 6
+};
+
+enum register_name
+{
+    REGBEGIN = 20,
+    A_r = 20
 };
 
 
@@ -37,13 +44,16 @@ int main()
 
 int Decipher(FILE* asemb_d)
 {
-    const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT", "HLT"};
+    const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT", "HLT", "POP"};
+    const char register_lst[] = {"A"};
 
     int* buf = (int*) calloc(COM_COUNT, sizeof(int));
     size_t ptr = 0;
 
     int c = 0, num = 0;
     char command[MAX_WORD] = {};
+
+    char reg_name = 0;
 
     size_t capacity =  COM_COUNT;
 
@@ -86,6 +96,22 @@ int Decipher(FILE* asemb_d)
         {
             buf[ptr] = HLT;
             ptr++;
+        }
+
+        else if(!strcmp(command_lst[POP], command))
+        {
+            buf[ptr] = POP;
+            ptr++;
+
+            c = fscanf(asemb_d, " %c", &reg_name);
+
+            if(reg_name == register_lst[A_r - REGBEGIN])
+            {
+                buf[ptr] = A_r;
+                ptr++;
+            }
+
+            else printf("register");
         }
 
         if(capacity < ptr + 2)

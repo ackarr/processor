@@ -6,7 +6,7 @@ int main()
 
     Processor_s proc = {.pc = 0,
                         .halted = 0,
-                        .command_lst = {Push, Add, Sub, Div, Out, Hlt},
+                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop},
                         .value = POISON};
 
     StackCreate(&proc.stk, 16);
@@ -93,6 +93,15 @@ int Hlt(Processor_s* proc)
     proc->halted = 1;
 
     return 0;
+}
+
+
+int Pop(Processor_s* proc)
+{
+    StackEl A = StackPop(&(proc->stk));
+    register_lst[A_r] = A;
+
+    proc->pc += 2;
 }
 
 

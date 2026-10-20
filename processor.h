@@ -8,8 +8,7 @@
 
 #include "stack.h"
 
-#define COMMAND_QUANT 6
-
+#define COMMAND_QUANT 7
 
 enum command_code
 {
@@ -18,7 +17,8 @@ enum command_code
     SUB  = 2,
     DIV  = 3,
     OUT  = 4,
-    HLT  = 5
+    HLT  = 5,
+    POP  = 6
 };
 
 
@@ -38,6 +38,7 @@ int Sub (Processor_s* proc);
 int Div (Processor_s* proc);
 int Out (Processor_s* proc);
 int Hlt (Processor_s* proc);
+int Pop (Processor_s* proc);
 
 int*   ReadFile (const char* file_name);
 size_t FileSize (const char* file_name);
@@ -55,6 +56,15 @@ enum proc_errs
     PC_ERR        = 2,
     CMD_ERR       = 3
 };
+
+
+#define REGISTER_QUANT 1
+enum register_name
+{
+    A_r = 20
+};
+
+extern StackEl register_lst[REGISTER_QUANT] = {};
 
 const char* ProcErrorName(int err);
 
