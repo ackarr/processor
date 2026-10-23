@@ -4,24 +4,73 @@ int main()
 {
     int* command = ReadFile("data.txt");
 
-    Processor_s proc = {.pc = 0,
-                        .halted = 0,
-                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop, Jmp, Push_r},
-                        .value = POISON};
+    if (!command)
+    {
+        printf("ReadFile data.txt");
+        return 1;
+    }
 
-    StackCreate(&proc.stk, 16);
+    Processor_s proc = {};
+
+    if (ProcessorCreate(&proc, 16))
+    {
+        free(command);
+        return 1;
+    }
 
     DoCommand(&proc, command);
 
     ON_DBG(ProcDump(&proc);)
 
-    printf("%lg", register_lst[A_r - REGBEGIN]);
+    printf("%lg", proc.regs[A_r - REGBEGIN]);
 
-    ON_DBG(ProcDump(&proc);)
+    ProcessorDestroy(&proc);
 
     free(command);
 
     return 0;
+}
+
+
+int ProcessorCreate(Processor_s* proc, size_t stack_capacity)
+{
+    if (!proc)
+        return 1;
+
+    proc->pc     = 0;
+    proc->halted = 0;
+    proc->value  = POISON;
+
+    proc->command_lst[PUSH]   = Push;
+    proc->command_lst[ADD]    = Add;
+    proc->command_lst[SUB]    = Sub;
+    proc->command_lst[DIV]    = Div;
+    proc->command_lst[OUT]    = Out;
+    proc->command_lst[HLT]    = Hlt;
+    proc->command_lst[POP]    = Pop;
+    proc->command_lst[JMP]    = Jmp;
+    proc->command_lst[PUSH_R] = Push_r;
+
+    for (int i = 0; i < REGISTER_QUANT; i++)
+    {
+        proc->regs[i] = 0;
+    }
+
+    StackCreate(&proc->stk, stack_capacity);
+
+    return 0;
+}
+
+void ProcessorDestroy(Processor_s* proc)
+{
+    if (!proc)
+        return;
+
+    StackClear(&proc->stk);
+
+    proc->pc     = 0;
+    proc->halted = 1;
+    proc->value  = POISON;
 }
 
 
@@ -52,7 +101,7 @@ int Add(Processor_s* proc)
 
 int Sub(Processor_s* proc)
 {
-    StackEl subtr = StackPop(&(proc->stk));
+    StackEl subtr   = StackPop(&(proc->stk));
     StackEl minuend = StackPop(&(proc->stk));
 
     StackEl diff = minuend - subtr;
@@ -103,15 +152,20 @@ int Hlt(Processor_s* proc)
 int Pop(Processor_s* proc)
 {
     StackEl A = StackPop(&(proc->stk));
-    register_lst[A_r - REGBEGIN] = A;
+
+    proc->regs[A_r - REGBEGIN] = A;
 
     proc->pc += 2;
+
+    return 0;
 }
 
 
 int Jmp(Processor_s* proc)
 {
-    proc->pc = proc->value;
+    proc->pc = (int) proc->value;
+
+    return 0;
 }
 
 
@@ -119,24 +173,43 @@ int Push_r(Processor_s* proc)
 {
     register_name name_r = (register_name) proc->value;
 
-    StackPush(&(proc->stk), register_lst[name_r - REGBEGIN]);
+    StackPush(&(proc->stk), proc->regs[name_r - REGBEGIN]);
 
     proc->pc += 2;
+
+    return 0;
 }
 
 
 int* ReadFile(const char* file_name)
 {
-    size_t file_size = FileSize(file_name) / 2 + 1;
+    size_t file_size = FileSize(file_name);
+
+    if (file_size == 0)
+        return NULL;
+
+    size_t capacity = file_size / 2 + 1;
 
     FILE* fd = fopen(file_name, "r");
 
-    int* buf = (int*) calloc(file_size + 1, sizeof(int));
+    if (!fd)
+        return NULL;
 
-    int i = 0;
-    for(int c = 0; (i < file_size) && fscanf(fd, "%d", &c) != EOF; i++)
+    int* buf = (int*) calloc(capacity + 1, sizeof(int));
+
+    if (!buf)
+    {
+        fclose(fd);
+        return NULL;
+    }
+
+    size_t i = 0;
+    int c    = 0;
+
+    while (i < capacity && fscanf(fd, "%d", &c) == 1)
     {
         buf[i] = c;
+        i++;
     }
 
     buf[i] = POISON;
@@ -146,11 +219,12 @@ int* ReadFile(const char* file_name)
     return buf;
 }
 
-size_t FileSize (const char* file_name)
+size_t FileSize(const char* file_name)
 {
-    struct stat st;
+    struct stat st = {};
 
-    stat(file_name, &st);
+    if (stat(file_name, &st))
+        return 0;
 
     return (size_t) st.st_size;
 }
@@ -158,7 +232,7 @@ size_t FileSize (const char* file_name)
 
 int DoCommand(Processor_s* proc, int* command)
 {
-    while((!proc->halted) && (command[proc->pc] != POISON))
+    while ((!proc->halted) && (command[proc->pc] != POISON))
     {
         ON_DBG(ProcDump(proc);)
 
@@ -230,6 +304,7 @@ void ProcDump(const Processor_s* proc)
     if (!proc)
     {
         fprintf(out, "}\n");
+        return;
     }
 
     fprintf(out, "    pc       = %d\n", proc->pc);

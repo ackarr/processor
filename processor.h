@@ -1,4 +1,5 @@
 #ifndef PROCESSOR_H
+#define PROCESSOR_H
 
 #include <stdio.h>
 #include <unistd.h>
@@ -9,6 +10,7 @@
 #include "stack.h"
 
 #define COMMAND_QUANT 9
+#define REGISTER_QUANT 1
 
 enum command_code
 {
@@ -23,7 +25,6 @@ enum command_code
     PUSH_R = 8
 };
 
-#define REGISTER_QUANT 1
 enum register_name
 {
     REGBEGIN = 20,
@@ -38,8 +39,12 @@ struct Processor_s
     int halted;
     int (*command_lst[COMMAND_QUANT])(Processor_s* proc);
     StackEl value;
+    StackEl regs[REGISTER_QUANT];
 };
 
+
+int  ProcessorCreate  (Processor_s* proc, size_t stack_capacity);
+void ProcessorDestroy (Processor_s* proc);
 
 int Push   (Processor_s* proc);
 int Add    (Processor_s* proc);
@@ -67,9 +72,6 @@ enum proc_errs
     PC_ERR        = 2,
     CMD_ERR       = 3
 };
-
-
-extern StackEl register_lst[REGISTER_QUANT] = {};
 
 const char* ProcErrorName(int err);
 

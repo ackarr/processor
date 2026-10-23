@@ -25,11 +25,16 @@ enum register_name
     A_r = 20
 };
 
+#define LABELS_COUNT 32
+#define LABEL_UNDEF  -1
+
 struct asm_buf
 {
     int*   data;
     size_t ptr;
     size_t capacity;
+    int    labels[LABELS_COUNT];
+    int    final_pass;
 };
 
 const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT",
@@ -38,17 +43,26 @@ const char register_lst[] = {"A"};
 
 
 int  Decipher(FILE* asemb_d);
+
 int  BufInit(struct asm_buf* buf);
 void BufDestroy(struct asm_buf* buf);
 int  BufPush(struct asm_buf* buf, int value);
 int  BufGrow(struct asm_buf* buf);
+
 int  FindCommand(const char* word);
 int  ReadRegister(FILE* asemb_d);
 int  HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code);
 int  HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code);
 int  HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code);
 int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
+
 int  WriteBuf(const struct asm_buf* buf, const char* file_name);
+
+int  Pass(FILE* asemb_d, struct asm_buf* buf);
+int  ParseLabel(const char* word);
+int  HandleLabelDef(struct asm_buf* buf, const char* word);
+int  HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
 
 
 int main()
@@ -72,37 +86,23 @@ int Decipher(FILE* asemb_d)
 {
     struct asm_buf buf = {};
 
-    if (BufInit(&buf)) return 1;
+    if (BufInit(&buf))
+        return 1;
 
-    char command[MAX_WORD] = {};
+    int res = Pass(asemb_d, &buf);
 
-    while (fscanf(asemb_d, " %9s", command) == 1)
+    if (!res)
     {
-        int code = FindCommand(command);
+        rewind(asemb_d);
 
-        if (code < 0)
-        {
-            printf("unknown command: %s\n", command);
-            continue;
-        }
+        buf.ptr        = 0;
+        buf.final_pass = 1;
 
-        if (HandleCommand(asemb_d, &buf, code))
-        {
-            BufDestroy(&buf);
-            return 1;
-        }
-
-        if (buf.capacity < buf.ptr + 2)
-        {
-            if (BufGrow(&buf))
-            {
-                BufDestroy(&buf);
-                return 1;
-            }
-        }
+        res = Pass(asemb_d, &buf);
     }
 
-    int res = WriteBuf(&buf, "data.txt");
+    if (!res)
+        res = WriteBuf(&buf, "data.txt");
 
     BufDestroy(&buf);
 
@@ -117,6 +117,89 @@ int BufInit(struct asm_buf* buf)
 
     buf->ptr      = 0;
     buf->capacity = COM_COUNT;
+    buf->final_pass = 0;
+
+    for (int i = 0; i < LABELS_COUNT; i++)
+    {
+        buf->labels[i] = LABEL_UNDEF;
+    }
+
+    return 0;
+}
+
+
+int Pass(FILE* asemb_d, struct asm_buf* buf)
+{
+    char command[MAX_WORD] = {};
+
+    while (fscanf(asemb_d, "%9s", command) == 1)
+    {
+        if (command[0] == ':')
+        {
+            if (HandleLabelDef(buf, command))
+                return 1;
+
+            continue;
+        }
+
+        int code = FindCommand(command);
+
+        if (code < 0)
+        {
+            if (buf->final_pass)
+                printf("unknown command: %s\n", command);
+
+            continue;
+        }
+
+        if (HandleCommand(asemb_d, buf, code))
+            return 1;
+
+        if (buf->capacity < buf->ptr + 2)
+        {
+            if (BufGrow(buf))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+
+int ParseLabel(const char* word)
+{
+    int idx = 0;
+
+    if (sscanf(word, ":%d", &idx) != 1)
+        return -1;
+
+    if (idx < 0 || idx >= LABELS_COUNT)
+        return -1;
+
+    return idx;
+}
+
+
+int HandleLabelDef(struct asm_buf* buf, const char* word)
+{
+    int idx = ParseLabel(word);
+
+    if (idx < 0)
+    {
+        printf("bad label: %s\n", word);
+        return 1;
+    }
+
+    if (!buf->final_pass)
+    {
+        if (buf->labels[idx] != LABEL_UNDEF)
+        {
+            printf("duplicate label: %s\n", word);
+            return 1;
+        }
+
+        buf->labels[idx] = (int) buf->ptr;
+    }
 
     return 0;
 }
@@ -219,17 +302,48 @@ int HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code)
 
 int HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code)
 {
-    size_t jmp_adr = 0;
+    char arg[MAX_WORD] = {};
+    int adr = 0;
 
     BufPush(buf, code);
 
-    if (fscanf(asemb_d, " %zu", &jmp_adr) != 1)
+    if (fscanf(asemb_d, "%9s", arg) != 1)
         return 1;
 
-    BufPush(buf, (int) jmp_adr);
+    if (arg[0] == ':')
+    {
+        int idx = ParseLabel(arg);
+
+        if (idx < 0)
+        {
+            printf("bad label: %s\n", arg);
+            return 1;
+        }
+
+        adr = buf->labels[idx];
+
+        if (adr == LABEL_UNDEF)
+        {
+            if (buf->final_pass)
+            {
+                printf("undefined label: %s\n", arg);
+                return 1;
+            }
+
+            adr = 0;
+        }
+    }
+    else if (sscanf(arg, "%d", &adr) != 1)
+    {
+        printf("bad address: %s\n", arg);
+        return 1;
+    }
+
+    BufPush(buf, adr);
 
     return 0;
 }
+
 
 int HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code)
 {
@@ -239,7 +353,9 @@ int HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code)
 
     if (reg < 0)
     {
-        printf("register\n");
+        if (buf->final_pass)
+            printf("register\n");
+
         buf->ptr--;
         return 0;
     }
@@ -248,6 +364,7 @@ int HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code)
 
     return 0;
 }
+
 
 int WriteBuf(const struct asm_buf* buf, const char* file_name)
 {
