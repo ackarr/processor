@@ -8,14 +8,15 @@
 
 enum command_code
 {
-    PUSH = 0,
-    ADD  = 1,
-    SUB  = 2,
-    DIV  = 3,
-    OUT  = 4,
-    HLT  = 5,
-    POP  = 6,
-    JMP  = 7
+    PUSH   = 0,
+    ADD    = 1,
+    SUB    = 2,
+    DIV    = 3,
+    OUT    = 4,
+    HLT    = 5,
+    POP    = 6,
+    JMP    = 7,
+    PUSHR  = 8
 };
 
 enum register_name
@@ -24,8 +25,30 @@ enum register_name
     A_r = 20
 };
 
+struct asm_buf
+{
+    int*   data;
+    size_t ptr;
+    size_t capacity;
+};
 
-int Decipher(FILE* data_d);
+const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT",
+                             "HLT", "POP", "JMP", "PUSHR"};
+const char register_lst[] = {"A"};
+
+
+int  Decipher(FILE* asemb_d);
+int  BufInit(struct asm_buf* buf);
+void BufDestroy(struct asm_buf* buf);
+int  BufPush(struct asm_buf* buf, int value);
+int  BufGrow(struct asm_buf* buf);
+int  FindCommand(const char* word);
+int  ReadRegister(FILE* asemb_d);
+int  HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code);
+int  HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  WriteBuf(const struct asm_buf* buf, const char* file_name);
 
 
 int main()
@@ -34,118 +57,214 @@ int main()
 
     if (!asemb_d)
     {
-        perror("fopen assembler.txt");
+        printf("fopen assembler.txt");
         return 1;
     }
 
-    Decipher(asemb_d);
+    int res = Decipher(asemb_d);
 
     fclose(asemb_d);
+
+    return res;
 }
 
 int Decipher(FILE* asemb_d)
 {
-    const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT", "HLT", "POP", "JMP"};
-    const char register_lst[] = {"A"};
+    struct asm_buf buf = {};
 
-    int* buf = (int*) calloc(COM_COUNT, sizeof(int));
-    size_t ptr = 0;
+    if (BufInit(&buf)) return 1;
 
-    int c = 0;
     char command[MAX_WORD] = {};
 
-    size_t capacity =  COM_COUNT;
-
-    while((c = fscanf(asemb_d, "%9s", command)) == 1)
+    while (fscanf(asemb_d, " %9s", command) == 1)
     {
-        if(!strcmp(command_lst[PUSH], command))
-        {
-            int num = 0;
+        int code = FindCommand(command);
 
-            buf[ptr] = PUSH;
-            ptr++;
-            c = fscanf(asemb_d, "%d", &num);
-            buf[ptr] = num;
-            ptr++;
+        if (code < 0)
+        {
+            printf("unknown command: %s\n", command);
+            continue;
         }
 
-        else if(!strcmp(command_lst[ADD], command))
+        if (HandleCommand(asemb_d, &buf, code))
         {
-            buf[ptr] = ADD;
-            ptr++;
+            BufDestroy(&buf);
+            return 1;
         }
 
-        else if(!strcmp(command_lst[SUB], command))
+        if (buf.capacity < buf.ptr + 2)
         {
-            buf[ptr] = SUB;
-            ptr++;
-        }
-
-        else if(!strcmp(command_lst[DIV], command))
-        {
-            buf[ptr] = DIV;
-            ptr++;
-        }
-
-        else if(!strcmp(command_lst[OUT], command))
-        {
-            buf[ptr] = OUT;
-            ptr++;
-        }
-
-        else if(!strcmp(command_lst[HLT], command))
-        {
-            buf[ptr] = HLT;
-            ptr++;
-        }
-
-        else if(!strcmp(command_lst[POP], command))
-        {
-            char reg_name = 0;
-
-            buf[ptr] = POP;
-            ptr++;
-
-            c = fscanf(asemb_d, " %c", &reg_name);
-
-            if(reg_name == register_lst[A_r - REGBEGIN])
+            if (BufGrow(&buf))
             {
-                buf[ptr] = A_r;
-                ptr++;
+                BufDestroy(&buf);
+                return 1;
             }
-
-            else printf("register");
-        }
-
-        else if(!strcmp(command_lst[JMP], command))
-        {
-            size_t jmp_adr = 0;
-
-            buf[ptr] = JMP;
-            ptr++;
-
-            c = fscanf(asemb_d, " %zu", &jmp_adr);
-
-            buf[ptr] = jmp_adr;
-            ptr++;
-        }
-
-        if(capacity < ptr + 2)
-        {
-            int* temp = (int*) realloc(buf, capacity * 2 * sizeof(int));
-            capacity *= 2;
-            buf = temp;
         }
     }
 
-    FILE* data = fopen("data.txt", "w");
+    int res = WriteBuf(&buf, "data.txt");
 
-    for(int i = 0; i < ptr; i++)
+    BufDestroy(&buf);
+
+    return res;
+}
+
+int BufInit(struct asm_buf* buf)
+{
+    buf->data = (int*) calloc(COM_COUNT, sizeof(int));
+
+    if (!buf->data) return 1;
+
+    buf->ptr      = 0;
+    buf->capacity = COM_COUNT;
+
+    return 0;
+}
+
+void BufDestroy(struct asm_buf* buf)
+{
+    free(buf->data);
+
+    buf->data     = NULL;
+    buf->ptr      = 0;
+    buf->capacity = 0;
+}
+
+int BufPush(struct asm_buf* buf, int value)
+{
+    buf->data[buf->ptr] = value;
+    buf->ptr++;
+
+    return 0;
+}
+
+int BufGrow(struct asm_buf* buf)
+{
+    int* temp = (int*) realloc(buf->data, buf->capacity * 2 * sizeof(int));
+
+    if (!temp)
+        return 1;
+
+    buf->data      = temp;
+    buf->capacity *= 2;
+
+    return 0;
+}
+
+int FindCommand(const char* word)
+{
+    size_t count = sizeof(command_lst) / sizeof(command_lst[67]);
+
+    for (size_t i = 0; i < count; i++)
     {
-        fprintf(data, "%d ", buf[i]);
+        if (!strcmp(command_lst[i], word))
+            return (int) i;
+    }
+
+    return -1;
+}
+
+int ReadRegister(FILE* asemb_d)
+{
+    char reg_name = 0;
+
+    if (fscanf(asemb_d, " %c", &reg_name) != 1)
+        return -1;
+
+    if (reg_name == register_lst[A_r - REGBEGIN])
+        return A_r;
+
+    return -1;
+}
+
+int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
+{
+    switch (code)
+    {
+        case PUSH:
+            return HandleNumArg(asemb_d, buf, code);
+
+        case JMP:
+            return HandleAddrArg(asemb_d, buf, code);
+
+        case POP:
+        case PUSHR:
+            return HandleRegArg(asemb_d, buf, code);
+
+        case ADD:
+        case SUB:
+        case DIV:
+        case OUT:
+        case HLT:
+            return BufPush(buf, code);
+
+        default:
+            return 1;
+    }
+}
+
+int HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code)
+{
+    int num = 0;
+
+    BufPush(buf, code);
+
+    if (fscanf(asemb_d, "%d", &num) != 1)
+        return 1;
+
+    BufPush(buf, num);
+
+    return 0;
+}
+
+int HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code)
+{
+    size_t jmp_adr = 0;
+
+    BufPush(buf, code);
+
+    if (fscanf(asemb_d, " %zu", &jmp_adr) != 1)
+        return 1;
+
+    BufPush(buf, (int) jmp_adr);
+
+    return 0;
+}
+
+int HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code)
+{
+    BufPush(buf, code);
+
+    int reg = ReadRegister(asemb_d);
+
+    if (reg < 0)
+    {
+        printf("register\n");
+        buf->ptr--;
+        return 0;
+    }
+
+    BufPush(buf, reg);
+
+    return 0;
+}
+
+int WriteBuf(const struct asm_buf* buf, const char* file_name)
+{
+    FILE* data = fopen(file_name, "w");
+
+    if (!data)
+    {
+        printf("fopen data.txt");
+        return 1;
+    }
+
+    for (size_t i = 0; i < buf->ptr; i++)
+    {
+        fprintf(data, "%d ", buf->data[i]);
     }
 
     fclose(data);
 
-    free(buf);
+    return 0;
 }

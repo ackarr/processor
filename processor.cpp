@@ -6,7 +6,7 @@ int main()
 
     Processor_s proc = {.pc = 0,
                         .halted = 0,
-                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop, Jmp},
+                        .command_lst = {Push, Add, Sub, Div, Out, Hlt, Pop, Jmp, Push_r},
                         .value = POISON};
 
     StackCreate(&proc.stk, 16);
@@ -115,6 +115,16 @@ int Jmp(Processor_s* proc)
 }
 
 
+int Push_r(Processor_s* proc)
+{
+    register_name name_r = (register_name) proc->value;
+
+    StackPush(&(proc->stk), register_lst[name_r - REGBEGIN]);
+
+    proc->pc += 2;
+}
+
+
 int* ReadFile(const char* file_name)
 {
     size_t file_size = FileSize(file_name) / 2 + 1;
@@ -150,6 +160,8 @@ int DoCommand(Processor_s* proc, int* command)
 {
     while((!proc->halted) && (command[proc->pc] != POISON))
     {
+        ON_DBG(ProcDump(proc);)
+
         ON_DBG
         (
             if (ProcOK(proc, command))
