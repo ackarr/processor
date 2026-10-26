@@ -16,17 +16,31 @@ enum command_code
     HLT    = 5,
     POP    = 6,
     JMP    = 7,
-    PUSHR  = 8
+    PUSHR  = 8,
+    JA     = 9,
+    JAE    = 10,
+    JB     = 11,
+    JBE    = 12,
+    JE     = 13,
+    JNE    = 14,
+    CALL   = 15,
+    RET    = 16,
+    MUL    = 17,
+    DEL    = 18
 };
 
 enum register_name
 {
     REGBEGIN = 20,
-    A_r = 20
+    A_r = 20,
+    B_r = 21,
+    C_r = 22,
+    D_r = 23
 };
 
 #define LABELS_COUNT 32
 #define LABEL_UNDEF  -1
+#define REGISTER_QUANT 4
 
 struct asm_buf
 {
@@ -38,8 +52,11 @@ struct asm_buf
 };
 
 const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT",
-                             "HLT", "POP", "JMP", "PUSHR"};
-const char register_lst[] = {"A"};
+                             "HLT", "POP", "JMP", "PUSHR",
+                             "JA", "JAE", "JB", "JBE", "JE", "JNE",
+                             "CALL", "RET", "MUL", "DEL"};
+
+const char register_lst[] = {"ABCD"};
 
 
 int  Decipher(FILE* asemb_d);
@@ -67,11 +84,11 @@ int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
 
 int main()
 {
-    FILE* asemb_d = fopen("assembler.txt", "r");
+    FILE* asemb_d = fopen("assembler.asm", "r");
 
     if (!asemb_d)
     {
-        printf("fopen assembler.txt");
+        printf("ERROR fopen assembler.asm");
         return 1;
     }
 
@@ -102,7 +119,7 @@ int Decipher(FILE* asemb_d)
     }
 
     if (!res)
-        res = WriteBuf(&buf, "data.txt");
+        res = WriteBuf(&buf, "/Users/askardavletsin/Documents/физтех/прога у деда/processor/data.txt");
 
     BufDestroy(&buf);
 
@@ -254,8 +271,11 @@ int ReadRegister(FILE* asemb_d)
     if (fscanf(asemb_d, " %c", &reg_name) != 1)
         return -1;
 
-    if (reg_name == register_lst[A_r - REGBEGIN])
-        return A_r;
+    for (int i = 0; i < REGISTER_QUANT; i++)
+    {
+        if (reg_name == register_lst[i])
+            return REGBEGIN + i;
+    }
 
     return -1;
 }
@@ -268,6 +288,13 @@ int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
             return HandleNumArg(asemb_d, buf, code);
 
         case JMP:
+        case JA:
+        case JAE:
+        case JB:
+        case JBE:
+        case JE:
+        case JNE:
+        case CALL:
             return HandleAddrArg(asemb_d, buf, code);
 
         case POP:
@@ -276,9 +303,12 @@ int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
 
         case ADD:
         case SUB:
+        case MUL:
         case DIV:
         case OUT:
         case HLT:
+        case RET:
+        case DEL:
             return BufPush(buf, code);
 
         default:

@@ -22,8 +22,6 @@ int main()
 
     ON_DBG(ProcDump(&proc);)
 
-    printf("%lg", proc.regs[A_r - REGBEGIN]);
-
     ProcessorDestroy(&proc);
 
     free(command);
@@ -44,12 +42,27 @@ int ProcessorCreate(Processor_s* proc, size_t stack_capacity)
     proc->command_lst[PUSH]   = Push;
     proc->command_lst[ADD]    = Add;
     proc->command_lst[SUB]    = Sub;
+    proc->command_lst[MUL]    = Mul;
     proc->command_lst[DIV]    = Div;
     proc->command_lst[OUT]    = Out;
     proc->command_lst[HLT]    = Hlt;
     proc->command_lst[POP]    = Pop;
     proc->command_lst[JMP]    = Jmp;
     proc->command_lst[PUSH_R] = Push_r;
+
+    proc->command_lst[JA]     = Ja;
+    proc->command_lst[JAE]    = Jae;
+    proc->command_lst[JB]     = Jb;
+    proc->command_lst[JBE]    = Jbe;
+    proc->command_lst[JE]     = Je;
+    proc->command_lst[JNE]    = Jne;
+
+    proc->command_lst[CALL]   = Call;
+    proc->command_lst[RET]    = Ret;
+
+    proc->command_lst[DEL]   = Del;
+
+    proc->ret_ptr = 0;
 
     for (int i = 0; i < REGISTER_QUANT; i++)
     {
@@ -114,6 +127,21 @@ int Sub(Processor_s* proc)
 }
 
 
+int Mul(Processor_s* proc)
+{
+    StackEl num1 = StackPop(&(proc->stk));
+    StackEl num2 = StackPop(&(proc->stk));
+
+    StackEl prod = num1 * num2;
+
+    StackPush(&(proc->stk), prod);
+
+    proc->pc += 1;
+
+    return 0;
+}
+
+
 int Div(Processor_s* proc)
 {
     StackEl divider  = StackPop(&(proc->stk));
@@ -151,9 +179,11 @@ int Hlt(Processor_s* proc)
 
 int Pop(Processor_s* proc)
 {
-    StackEl A = StackPop(&(proc->stk));
+    int idx = (int) proc->value - REGBEGIN;
 
-    proc->regs[A_r - REGBEGIN] = A;
+    StackEl val = StackPop(&(proc->stk));
+
+    proc->regs[idx] = val;
 
     proc->pc += 2;
 
@@ -169,6 +199,104 @@ int Jmp(Processor_s* proc)
 }
 
 
+int JmpIf(Processor_s* proc, int cond)
+{
+    if (cond)
+        return Jmp(proc);
+
+    proc->pc += 2;
+
+    return 0;
+}
+
+
+int Ja(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a > b);
+}
+
+
+int Jae(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a >= b);
+}
+
+
+int Jb(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a < b);
+}
+
+
+int Jbe(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a <= b);
+}
+
+
+int Je(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a == b);
+}
+
+
+int Jne(Processor_s* proc)
+{
+    StackEl a = StackPop(&(proc->stk));
+    StackEl b = StackPop(&(proc->stk));
+
+    return JmpIf(proc, a != b);
+}
+
+
+int Call(Processor_s* proc)
+{
+    ON_DBG(
+    if (proc->ret_ptr >= CALL_DEPTH)
+    {
+        printf("call stack overflow\n");
+        proc->halted = 1;
+        return 1;
+    })
+
+    proc->ret_stack[proc->ret_ptr] = proc->pc + 2;
+    proc->ret_ptr++;
+
+    return Jmp(proc);
+}
+
+int Ret(Processor_s* proc)
+{
+    ON_DBG(
+    if (proc->ret_ptr <= 0)
+    {
+        printf("RET without CALL\n");
+        proc->halted = 1;
+        return 1;
+    })
+
+    proc->ret_ptr--;
+    proc->pc = proc->ret_stack[proc->ret_ptr];
+
+    return 0;
+}
+
+
 int Push_r(Processor_s* proc)
 {
     register_name name_r = (register_name) proc->value;
@@ -176,6 +304,16 @@ int Push_r(Processor_s* proc)
     StackPush(&(proc->stk), proc->regs[name_r - REGBEGIN]);
 
     proc->pc += 2;
+
+    return 0;
+}
+
+
+int Del(Processor_s* proc)
+{
+    StackPop(&(proc->stk));
+
+    proc->pc += 1;
 
     return 0;
 }
