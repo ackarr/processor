@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 
 #define MAX_WORD 10
@@ -42,6 +45,13 @@ enum register_name
 #define LABEL_UNDEF  -1
 #define REGISTER_QUANT 4
 
+struct source
+{
+    char*  data;
+    size_t size;
+    size_t pos;
+};
+
 struct asm_buf
 {
     int*   data;
@@ -58,64 +68,127 @@ const char* command_lst[] = {"PUSH", "ADD", "SUB", "DIV", "OUT",
 
 const char register_lst[] = {"ABCD"};
 
+#define COMMANDS_COUNT (sizeof(command_lst) / sizeof(command_lst[0]))
 
-int  Decipher(FILE* asemb_d);
+unsigned long command_hash[COMMANDS_COUNT] = {};
+
+
+int  SourceLoad(struct source* src, const char* file_name);
+void SourceDestroy(struct source* src);
+
+int  Decipher(struct source* src);
 
 int  BufInit(struct asm_buf* buf);
 void BufDestroy(struct asm_buf* buf);
 int  BufPush(struct asm_buf* buf, int value);
 int  BufGrow(struct asm_buf* buf);
 
+unsigned long Djb2(const char* word);
+void InitCommandHashes();
+
 int  FindCommand(const char* word);
-int  ReadRegister(FILE* asemb_d);
-int  HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code);
-int  HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code);
-int  HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code);
-int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  ReadRegister(struct source* src);
+int  EmitCommand    (struct source* src, struct asm_buf* buf, int code);
+int  EmitNumCommand (struct source* src, struct asm_buf* buf, int code);
+int  EmitJumpCommand(struct source* src, struct asm_buf* buf, int code);
+int  EmitRegCommand (struct source* src, struct asm_buf* buf, int code);
 
 int  WriteBuf(const struct asm_buf* buf, const char* file_name);
 
-int  Pass(FILE* asemb_d, struct asm_buf* buf);
+int  AssemblePass(struct source* src, struct asm_buf* buf);
 int  ParseLabel(const char* word);
-int  HandleLabelDef(struct asm_buf* buf, const char* word);
-int  HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code);
-int  HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code);
+int  DefineLabel(struct asm_buf* buf, const char* word);
 
 
 int main()
 {
-    FILE* asemb_d = fopen("assembler.asm", "r");
+    struct source src = {};
 
-    if (!asemb_d)
+    InitCommandHashes();
+
+    if (SourceLoad(&src, "assembler.asm"))
     {
-        printf("ERROR fopen assembler.asm");
+        printf("ERROR open assembler.asm\n");
         return 1;
     }
 
-    int res = Decipher(asemb_d);
+    int res = Decipher(&src);
 
-    fclose(asemb_d);
+    SourceDestroy(&src);
 
     return res;
 }
 
-int Decipher(FILE* asemb_d)
+int SourceLoad(struct source* src, const char* file_name)
+{
+    int fd = open(file_name, O_RDONLY);
+
+    if (fd < 0)
+        return 1;
+
+    struct stat st = {};
+
+    if (fstat(fd, &st) != 0 || st.st_size < 0)
+    {
+        close(fd);
+        return 1;
+    }
+
+    size_t size = (size_t) st.st_size;
+
+    char* data = (char*) calloc(size + 1, sizeof(char));
+
+    if (!data)
+    {
+        close(fd);
+        return 1;
+    }
+
+    ssize_t got = read(fd, data, size);
+
+    close(fd);
+
+    if (got < 0)
+    {
+        free(data);
+        return 1;
+    }
+
+    data[got] = '\0';
+
+    src->data = data;
+    src->size = (size_t) got;
+    src->pos  = 0;
+
+    return 0;
+}
+
+void SourceDestroy(struct source* src)
+{
+    free(src->data);
+
+    src->data = NULL;
+    src->size = 0;
+    src->pos  = 0;
+}
+
+int Decipher(struct source* src)
 {
     struct asm_buf buf = {};
 
     if (BufInit(&buf))
         return 1;
 
-    int res = Pass(asemb_d, &buf);
+    int res = AssemblePass(src, &buf);
 
     if (!res)
     {
-        rewind(asemb_d);
+        src->pos = 0;
 
         buf.ptr        = 0;
         buf.final_pass = 1;
 
-        res = Pass(asemb_d, &buf);
+        res = AssemblePass(src, &buf);
     }
 
     if (!res)
@@ -132,8 +205,8 @@ int BufInit(struct asm_buf* buf)
 
     if (!buf->data) return 1;
 
-    buf->ptr      = 0;
-    buf->capacity = COM_COUNT;
+    buf->ptr        = 0;
+    buf->capacity   = COM_COUNT;
     buf->final_pass = 0;
 
     for (int i = 0; i < LABELS_COUNT; i++)
@@ -145,15 +218,18 @@ int BufInit(struct asm_buf* buf)
 }
 
 
-int Pass(FILE* asemb_d, struct asm_buf* buf)
+int AssemblePass(struct source* src, struct asm_buf* buf)
 {
     char command[MAX_WORD] = {};
+    int  read_len = 0;
 
-    while (fscanf(asemb_d, "%9s", command) == 1)
+    while (sscanf(src->data + src->pos, "%9s%n", command, &read_len) == 1)
     {
+        src->pos += (size_t) read_len;
+
         if (command[0] == ':')
         {
-            if (HandleLabelDef(buf, command))
+            if (DefineLabel(buf, command))
                 return 1;
 
             continue;
@@ -169,7 +245,7 @@ int Pass(FILE* asemb_d, struct asm_buf* buf)
             continue;
         }
 
-        if (HandleCommand(asemb_d, buf, code))
+        if (EmitCommand(src, buf, code))
             return 1;
 
         if (buf->capacity < buf->ptr + 2)
@@ -197,7 +273,7 @@ int ParseLabel(const char* word)
 }
 
 
-int HandleLabelDef(struct asm_buf* buf, const char* word)
+int DefineLabel(struct asm_buf* buf, const char* word)
 {
     int idx = ParseLabel(word);
 
@@ -251,25 +327,44 @@ int BufGrow(struct asm_buf* buf)
     return 0;
 }
 
+unsigned long Djb2(const char* word)
+{
+    unsigned long hash = 5381;
+
+    for (; *word; word++)
+        hash = ((hash << 5) + hash) + (unsigned char) *word;
+
+    return hash;
+}
+
+void InitCommandHashes()
+{
+    for (size_t i = 0; i < COMMANDS_COUNT; i++)
+        command_hash[i] = Djb2(command_lst[i]);
+}
+
 int FindCommand(const char* word)
 {
-    size_t count = sizeof(command_lst) / sizeof(command_lst[67]);
+    unsigned long hash = Djb2(word);
 
-    for (size_t i = 0; i < count; i++)
+    for (size_t i = 0; i < COMMANDS_COUNT; i++)
     {
-        if (!strcmp(command_lst[i], word))
+        if (command_hash[i] == hash && !strcmp(command_lst[i], word))
             return (int) i;
     }
 
     return -1;
 }
 
-int ReadRegister(FILE* asemb_d)
+int ReadRegister(struct source* src)
 {
     char reg_name = 0;
+    int  read_len = 0;
 
-    if (fscanf(asemb_d, " %c", &reg_name) != 1)
+    if (sscanf(src->data + src->pos, " %c%n", &reg_name, &read_len) != 1)
         return -1;
+
+    src->pos += (size_t) read_len;
 
     for (int i = 0; i < REGISTER_QUANT; i++)
     {
@@ -280,12 +375,12 @@ int ReadRegister(FILE* asemb_d)
     return -1;
 }
 
-int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
+int EmitCommand(struct source* src, struct asm_buf* buf, int code)
 {
     switch (code)
     {
         case PUSH:
-            return HandleNumArg(asemb_d, buf, code);
+            return EmitNumCommand(src, buf, code);
 
         case JMP:
         case JA:
@@ -295,11 +390,11 @@ int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
         case JE:
         case JNE:
         case CALL:
-            return HandleAddrArg(asemb_d, buf, code);
+            return EmitJumpCommand(src, buf, code);
 
         case POP:
         case PUSHR:
-            return HandleRegArg(asemb_d, buf, code);
+            return EmitRegCommand(src, buf, code);
 
         case ADD:
         case SUB:
@@ -316,29 +411,35 @@ int HandleCommand(FILE* asemb_d, struct asm_buf* buf, int code)
     }
 }
 
-int HandleNumArg(FILE* asemb_d, struct asm_buf* buf, int code)
+int EmitNumCommand(struct source* src, struct asm_buf* buf, int code)
 {
-    int num = 0;
+    int num      = 0;
+    int read_len = 0;
 
     BufPush(buf, code);
 
-    if (fscanf(asemb_d, "%d", &num) != 1)
+    if (sscanf(src->data + src->pos, "%d%n", &num, &read_len) != 1)
         return 1;
+
+    src->pos += (size_t) read_len;
 
     BufPush(buf, num);
 
     return 0;
 }
 
-int HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code)
+int EmitJumpCommand(struct source* src, struct asm_buf* buf, int code)
 {
     char arg[MAX_WORD] = {};
-    int adr = 0;
+    int  adr      = 0;
+    int  read_len = 0;
 
     BufPush(buf, code);
 
-    if (fscanf(asemb_d, "%9s", arg) != 1)
+    if (sscanf(src->data + src->pos, "%9s%n", arg, &read_len) != 1)
         return 1;
+
+    src->pos += (size_t) read_len;
 
     if (arg[0] == ':')
     {
@@ -375,11 +476,11 @@ int HandleAddrArg(FILE* asemb_d, struct asm_buf* buf, int code)
 }
 
 
-int HandleRegArg(FILE* asemb_d, struct asm_buf* buf, int code)
+int EmitRegCommand(struct source* src, struct asm_buf* buf, int code)
 {
     BufPush(buf, code);
 
-    int reg = ReadRegister(asemb_d);
+    int reg = ReadRegister(src);
 
     if (reg < 0)
     {
