@@ -97,64 +97,28 @@ int Push(Processor_s* proc)
 }
 
 
-int Add(Processor_s* proc)
+typedef StackEl (*BinaryOp)(StackEl left, StackEl right);
+
+static int ApplyBinaryOp(Processor_s* proc, BinaryOp op)
 {
-    StackEl num1 = StackPop(&(proc->stk));
-    StackEl num2 = StackPop(&(proc->stk));
+    StackEl right = StackPop(&proc->stk);
+    StackEl left  = StackPop(&proc->stk);
 
-    StackEl sum = num1 + num2;
-
-    StackPush(&(proc->stk), sum);
+    StackPush(&proc->stk, op(left, right));
 
     proc->pc += 1;
-
     return 0;
 }
 
+static StackEl OpAdd(StackEl a, StackEl b) { return a + b; }
+static StackEl OpSub(StackEl a, StackEl b) { return a - b; }
+static StackEl OpMul(StackEl a, StackEl b) { return a * b; }
+static StackEl OpDiv(StackEl a, StackEl b) { return a / b; }
 
-int Sub(Processor_s* proc)
-{
-    StackEl subtr   = StackPop(&(proc->stk));
-    StackEl minuend = StackPop(&(proc->stk));
-
-    StackEl diff = minuend - subtr;
-
-    StackPush(&(proc->stk), diff);
-
-    proc->pc += 1;
-
-    return 0;
-}
-
-
-int Mul(Processor_s* proc)
-{
-    StackEl num1 = StackPop(&(proc->stk));
-    StackEl num2 = StackPop(&(proc->stk));
-
-    StackEl prod = num1 * num2;
-
-    StackPush(&(proc->stk), prod);
-
-    proc->pc += 1;
-
-    return 0;
-}
-
-
-int Div(Processor_s* proc)
-{
-    StackEl divider  = StackPop(&(proc->stk));
-    StackEl dividend = StackPop(&(proc->stk));
-
-    StackEl priv = dividend / divider;
-
-    StackPush(&(proc->stk), priv);
-
-    proc->pc += 1;
-
-    return 0;
-}
+int Add(Processor_s* proc) { return ApplyBinaryOp(proc, OpAdd); }
+int Sub(Processor_s* proc) { return ApplyBinaryOp(proc, OpSub); }
+int Mul(Processor_s* proc) { return ApplyBinaryOp(proc, OpMul); }
+int Div(Processor_s* proc) { return ApplyBinaryOp(proc, OpDiv); }
 
 
 int Out(Processor_s* proc)
@@ -209,59 +173,31 @@ int JmpIf(Processor_s* proc, int cond)
     return 0;
 }
 
+typedef bool (*BinaryPred)(StackEl left, StackEl right);
 
-int Ja(Processor_s* proc)
+static int ApplyJumpPred(Processor_s* proc, BinaryPred pred)
 {
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
+    StackEl right = StackPop(&proc->stk);
+    StackEl left  = StackPop(&proc->stk);
 
-    return JmpIf(proc, a > b);
+    return JmpIf(proc, pred(left, right));
 }
 
+static bool PredGt(StackEl a, StackEl b) { return a >  b; }
+static bool PredGe(StackEl a, StackEl b) { return a >= b; }
+static bool PredLt(StackEl a, StackEl b) { return a <  b; }
+static bool PredLe(StackEl a, StackEl b) { return a <= b; }
+static bool PredEq(StackEl a, StackEl b) { return a == b; }
+static bool PredNe(StackEl a, StackEl b) { return a != b; }
 
-int Jae(Processor_s* proc)
-{
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
-
-    return JmpIf(proc, a >= b);
-}
-
-
-int Jb(Processor_s* proc)
-{
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
-
-    return JmpIf(proc, a < b);
-}
+int Ja (Processor_s* proc) { return ApplyJumpPred(proc, PredGt); }
+int Jae(Processor_s* proc) { return ApplyJumpPred(proc, PredGe); }
+int Jb (Processor_s* proc) { return ApplyJumpPred(proc, PredLt); }
+int Jbe(Processor_s* proc) { return ApplyJumpPred(proc, PredLe); }
+int Je (Processor_s* proc) { return ApplyJumpPred(proc, PredEq); }
+int Jne(Processor_s* proc) { return ApplyJumpPred(proc, PredNe); }
 
 
-int Jbe(Processor_s* proc)
-{
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
-
-    return JmpIf(proc, a <= b);
-}
-
-
-int Je(Processor_s* proc)
-{
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
-
-    return JmpIf(proc, a == b);
-}
-
-
-int Jne(Processor_s* proc)
-{
-    StackEl a = StackPop(&(proc->stk));
-    StackEl b = StackPop(&(proc->stk));
-
-    return JmpIf(proc, a != b);
-}
 
 
 int Call(Processor_s* proc)
