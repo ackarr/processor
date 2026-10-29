@@ -75,19 +75,20 @@ unsigned long command_hash[COMMANDS_COUNT] = {};
 
 int  SourceLoad(struct source* src, const char* file_name);
 void SourceDestroy(struct source* src);
+void StripComments(struct source* src);
 
 int  Decipher(struct source* src);
 
-int  BufInit(struct asm_buf* buf);
+int  BufInit   (struct asm_buf* buf);
 void BufDestroy(struct asm_buf* buf);
-int  BufPush(struct asm_buf* buf, int value);
-int  BufGrow(struct asm_buf* buf);
+int  BufPush   (struct asm_buf* buf, int value);
+int  BufGrow   (struct asm_buf* buf);
 
 unsigned long Djb2(const char* word);
 void InitCommandHashes();
 
-int  FindCommand(const char* word);
-int  ReadRegister(struct source* src);
+int  FindCommand    (const char* word);
+int  ReadRegister   (struct source* src);
 int  EmitCommand    (struct source* src, struct asm_buf* buf, int code);
 int  EmitNumCommand (struct source* src, struct asm_buf* buf, int code);
 int  EmitJumpCommand(struct source* src, struct asm_buf* buf, int code);
@@ -96,8 +97,8 @@ int  EmitRegCommand (struct source* src, struct asm_buf* buf, int code);
 int  WriteBuf(const struct asm_buf* buf, const char* file_name);
 
 int  AssemblePass(struct source* src, struct asm_buf* buf);
-int  ParseLabel(const char* word);
-int  DefineLabel(struct asm_buf* buf, const char* word);
+int  ParseLabel  (const char* word);
+int  DefineLabel (struct asm_buf* buf, const char* word);
 
 
 int main()
@@ -172,9 +173,25 @@ void SourceDestroy(struct source* src)
     src->pos  = 0;
 }
 
+void StripComments(struct source* src)
+{
+    for (size_t i = 0; i < src->size; i++)
+    {
+        int line_start = (i == 0) || (src->data[i - 1] == '\n');
+
+        if (!line_start || src->data[i] != ';')
+            continue;
+
+        while (i < src->size && src->data[i] != '\n')
+            src->data[i++] = ' ';
+    }
+}
+
 int Decipher(struct source* src)
 {
     struct asm_buf buf = {};
+
+    StripComments(src);
 
     if (BufInit(&buf))
         return 1;
